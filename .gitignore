@@ -4,3 +4,7 @@ dist/
 .DS_Store
 .env
 .env.local
+.next/
+out/
+deno.lock
+.netlify/
