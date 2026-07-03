@@ -1,0 +1,144 @@
+#!/usr/bin/env node
+import { WhiteRoomClient, WhiteRoomError } from "@whiteroom-ai/sdk";
+
+const USAGE = `whiteroom — CLI for WhiteRoom agent governance
+
+Usage:
+  whiteroom health
+  whiteroom register <agent_id> [--fleet <id>] [--role <role>]
+  whiteroom pair <agent_a> <agent_b> [--fleet <id>]
+  whiteroom auto-pair [--fleet <id>]
+  whiteroom start <agent_id> [--fleet <id>]
+  whiteroom task <agent_id> <task_name> [--minutes <n>] [--tokens <n>] [--fleet <id>]
+  whiteroom check <agent_id> [--fleet <id>]
+  whiteroom handover <from_agent> <to_agent> [--fleet <id>]
+  whiteroom alarm <agent_id> [--fleet <id>]
+  whiteroom report [--fleet <id>]
+  whiteroom fleets
+  whiteroom login <fleet_token>
+
+Options:
+  --url <base_url>   Server URL (default: WHITEROOM_URL or http://localhost:3000)
+  --key <api_key>    API key (default: WHITEROOM_API_KEY)
+`;
+
+function parseArgs(argv: string[]) {
+  const args: string[] = [];
+  const flags: Record<string, string> = {};
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i].startsWith("--") && i + 1 < argv.length) {
+      flags[argv[i].slice(2)] = argv[++i];
+    } else {
+      args.push(argv[i]);
+    }
+  }
+  return { args, flags };
+}
+
+async function main() {
+  const { args, flags } = parseArgs(process.argv.slice(2));
+  const command = args[0];
+
+  if (!command || command === "help" || command === "--help") {
+    console.log(USAGE);
+    process.exit(0);
+  }
+
+  const client = new WhiteRoomClient({
+    baseUrl: flags.url ?? process.env.WHITEROOM_URL ?? "http://localhost:3000",
+    apiKey: flags.key ?? process.env.WHITEROOM_API_KEY,
+  });
+
+  try {
+    switch (command) {
+      case "health":
+        print(await client.health());
+        break;
+
+      case "register":
+        requireArg(args[1], "agent_id");
+        print(await client.registerAgent(args[1], { fleetId: flags.fleet, role: flags.role }));
+        break;
+
+      case "pair":
+        requireArg(args[1], "agent_a");
+        requireArg(args[2], "agent_b");
+        print(await client.pairAgents(args[1], args[2], flags.fleet));
+        break;
+
+      case "auto-pair":
+        print(await client.autoPair(flags.fleet));
+        break;
+
+      case "start":
+        requireArg(args[1], "agent_id");
+        print(await client.startWatch(args[1], flags.fleet));
+        break;
+
+      case "task":
+        requireArg(args[1], "agent_id");
+        requireArg(args[2], "task_name");
+        print(
+          await client.completeTask(args[1], args[2], {
+            fleetId: flags.fleet,
+            minutesSpent: flags.minutes ? Number(flags.minutes) : undefined,
+            tokensUsed: flags.tokens ? Number(flags.tokens) : undefined,
+          })
+        );
+        break;
+
+      case "check":
+        requireArg(args[1], "agent_id");
+        print(await client.checkWatch(args[1], flags.fleet));
+        break;
+
+      case "handover":
+        requireArg(args[1], "from_agent");
+        requireArg(args[2], "to_agent");
+        print(await client.initiateHandover(args[1], args[2], { fleetId: flags.fleet }));
+        break;
+
+      case "alarm":
+        requireArg(args[1], "agent_id");
+        print(await client.fireAlarm(args[1], flags.fleet));
+        break;
+
+      case "report":
+        print(await client.fleetReport(flags.fleet));
+        break;
+
+      case "fleets":
+        print(await client.listFleets());
+        break;
+
+      case "login":
+        requireArg(args[1], "fleet_token");
+        print(await client.tokenLogin(args[1]));
+        break;
+
+      default:
+        console.error(`Unknown command: ${command}\n`);
+        console.log(USAGE);
+        process.exit(1);
+    }
+  } catch (e) {
+    if (e instanceof WhiteRoomError) {
+      console.error(`Error ${(e as WhiteRoomError).status}: ${(e as WhiteRoomError).message}`);
+      process.exit(1);
+    }
+    throw e;
+  }
+}
+
+function requireArg(value: string | undefined, name: string): asserts value is string {
+  if (!value) {
+    console.error(`Missing required argument: <${name}>`);
+    process.exit(1);
+  }
+}
+
+function print(data: unknown) {
+  console.log(JSON.stringify(data, null, 2));
+}
+
+main();
