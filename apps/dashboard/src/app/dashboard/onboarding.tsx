@@ -60,7 +60,7 @@ export function Onboarding({ name, email, apiKey, fleetId, fleetToken, report, i
 
   return (
     <div className="min-h-screen font-sans" style={{ background: '#070B14', color: '#EAF1FF' }}>
-      {/* Header — matches whiteroom.tech nav */}
+      {/* Header */}
       <header className="sticky top-0 z-50" style={{ background: 'rgba(7,11,20,.74)', backdropFilter: 'blur(16px)', borderBottom: '1px solid #15203A' }}>
         <nav className="max-w-[1200px] mx-auto flex items-center justify-between h-[66px] px-7">
           <a href="https://whiteroom.tech" className="flex items-center gap-2.5" style={{ textDecoration: 'none' }}>
@@ -85,7 +85,7 @@ export function Onboarding({ name, email, apiKey, fleetId, fleetToken, report, i
         </nav>
       </header>
 
-      <main className="max-w-[1200px] mx-auto px-7 py-14 space-y-10">
+      <main className="max-w-[860px] mx-auto px-7 py-14 space-y-10">
         {/* Welcome banner */}
         {isNew ? (
           <div className="rounded-xl p-6" style={{ border: '1px solid rgba(63,224,160,.2)', background: 'rgba(63,224,160,.04)' }}>
@@ -93,20 +93,54 @@ export function Onboarding({ name, email, apiKey, fleetId, fleetToken, report, i
               Welcome, {name}
             </h2>
             <p className="text-sm mt-1.5" style={{ color: '#A9B8D4' }}>
-              Your fleet has been provisioned. Save your API key below — you&apos;ll need it to connect your agents.
+              Your account is ready. Follow the steps below to connect your first agent.
             </p>
           </div>
         ) : (
           <div>
             <h2 className="text-xl font-display font-bold">Welcome back, {name}</h2>
-            <p className="text-sm mt-1" style={{ color: '#6B7C9E' }}>Fleet: <span className="font-mono">{fleetId}</span></p>
           </div>
         )}
 
-        {/* API Key section */}
-        <section className="rounded-xl p-6 space-y-4" style={{ background: '#0A1020', border: '1px solid #1B2740' }}>
+        {/* Live Dashboard + Fleet Status row */}
+        <div className={`grid gap-4 ${report ? 'grid-cols-[1fr_1fr]' : ''}`}>
+          <a
+            href={`https://whiteroom.tech/dashboard.html?key=${encodeURIComponent(apiKey)}`}
+            className="rounded-xl p-6 flex items-center gap-4 transition-all group"
+            style={{ background: '#0A1020', border: '1px solid #1B2740', textDecoration: 'none' }}
+          >
+            <div className="w-12 h-12 rounded-lg flex items-center justify-center shrink-0" style={{ background: 'rgba(56,225,255,.1)' }}>
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#38E1FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+            </div>
+            <div>
+              <p className="text-base font-semibold group-hover:text-[#38E1FF] transition-colors" style={{ color: '#EAF1FF' }}>Live Dashboard</p>
+              <p className="text-sm mt-0.5" style={{ color: '#6B7C9E' }}>Monitor your agents in real time</p>
+            </div>
+            <svg className="ml-auto shrink-0 opacity-40 group-hover:opacity-100 transition-opacity" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#38E1FF" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </a>
+
+          {report && (
+            <div className="rounded-xl p-6" style={{ background: '#0A1020', border: '1px solid #1B2740' }}>
+              <p className="text-[11px] font-mono tracking-[.28em] uppercase font-medium mb-3" style={{ color: '#A9B8D4' }}>Fleet Status</p>
+              <div className="grid grid-cols-3 gap-3">
+                <StatCard label="Agents" value={(report as Record<string, unknown>).agentCount as number ?? 0} />
+                <StatCard label="Tasks" value={((report as Record<string, Record<string, number>>).totals?.tasks) ?? 0} />
+                <StatCard
+                  label="Tokens"
+                  value={`${(((report as Record<string, Record<string, number>>).totals?.tokens ?? 0) / 1000).toFixed(1)}K`}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* API Key */}
+        <section className="rounded-xl p-6 space-y-3" style={{ background: '#0A1020', border: '1px solid #1B2740' }}>
           <div className="flex items-center justify-between">
-            <h3 className="text-[11px] font-mono tracking-[.28em] uppercase font-medium" style={{ color: '#A9B8D4' }}>Your API Key</h3>
+            <div>
+              <h3 className="text-[11px] font-mono tracking-[.28em] uppercase font-medium" style={{ color: '#A9B8D4' }}>Your API Key</h3>
+              <p className="text-xs mt-1" style={{ color: '#4E607F' }}>Use this key to authenticate all CLI commands and API requests.</p>
+            </div>
             <button
               onClick={() => setShowKey(!showKey)}
               className="text-xs font-mono transition-colors cursor-pointer"
@@ -121,77 +155,67 @@ export function Onboarding({ name, email, apiKey, fleetId, fleetToken, report, i
             </code>
             <CopyButton text={apiKey} />
           </div>
-          {fleetToken && (
-            <div className="flex items-center rounded-lg px-4 py-3" style={{ background: '#070B14', border: '1px solid #15203A' }}>
-              <div className="flex-1">
-                <p className="text-[10px] font-mono mb-1" style={{ color: '#4E607F' }}>Fleet Token</p>
-                <code className="text-sm font-mono break-all" style={{ color: '#A9B8D4' }}>
-                  {showKey ? fleetToken : '•'.repeat(24)}
-                </code>
-              </div>
-              <CopyButton text={fleetToken} />
-            </div>
-          )}
         </section>
 
-        {/* Quick Start */}
-        <section className="rounded-xl p-6 space-y-6" style={{ background: '#0A1020', border: '1px solid #1B2740' }}>
-          <h3 className="text-[11px] font-mono tracking-[.28em] uppercase font-medium" style={{ color: '#A9B8D4' }}>Quick Start</h3>
+        {/* Getting Started */}
+        <section className="rounded-xl p-6 space-y-8" style={{ background: '#0A1020', border: '1px solid #1B2740' }}>
+          <h3 className="text-[11px] font-mono tracking-[.28em] uppercase font-medium" style={{ color: '#A9B8D4' }}>Get Started in 4 Steps</h3>
 
-          <div className="space-y-6">
-            <div>
-              <p className="text-sm mb-3" style={{ color: '#A9B8D4' }}>
-                <strong className="font-semibold" style={{ color: '#EAF1FF' }}>Step 1.</strong>{' '}
-                Set one environment variable — your existing agent framework runs unchanged.
-              </p>
-              <div className="space-y-2">
-                <CodeBlock label="Anthropic" code="export ANTHROPIC_BASE_URL=https://proxy.whiteroom.tech" />
-                <CodeBlock label="OpenAI" code="export OPENAI_BASE_URL=https://proxy.whiteroom.tech/v1" />
+          <div className="space-y-8">
+            {/* Step 1 */}
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm font-bold" style={{ background: 'rgba(56,225,255,.1)', color: '#38E1FF' }}>1</div>
+              <div className="flex-1 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: '#EAF1FF' }}>Point your agent at WhiteRoom</p>
+                  <p className="text-sm mt-1" style={{ color: '#6B7C9E' }}>Change one URL so your agent&apos;s API calls flow through WhiteRoom. No code changes needed — your agent runs exactly as before, but now with governance.</p>
+                </div>
+                <div className="space-y-2">
+                  <CodeBlock label="If you use Anthropic (Claude)" code="export ANTHROPIC_BASE_URL=https://proxy.whiteroom.tech" />
+                  <CodeBlock label="If you use OpenAI (GPT)" code="export OPENAI_BASE_URL=https://proxy.whiteroom.tech/v1" />
+                </div>
               </div>
             </div>
 
-            <div>
-              <p className="text-sm mb-3" style={{ color: '#A9B8D4' }}>
-                <strong className="font-semibold" style={{ color: '#EAF1FF' }}>Step 2.</strong>{' '}
-                Register your first agent.
-              </p>
-              <CodeBlock label="CLI" code={`npx @whiteroom-ai/cli register --url https://proxy.whiteroom.tech --key ${apiKey} my-agent`} />
+            {/* Step 2 */}
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm font-bold" style={{ background: 'rgba(56,225,255,.1)', color: '#38E1FF' }}>2</div>
+              <div className="flex-1 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: '#EAF1FF' }}>Register your agent</p>
+                  <p className="text-sm mt-1" style={{ color: '#6B7C9E' }}>Give your agent a name so WhiteRoom can track it. Replace <code className="font-mono text-xs px-1 py-0.5 rounded" style={{ background: '#15203A', color: '#A9B8D4' }}>my-agent</code> with whatever you want to call it.</p>
+                </div>
+                <CodeBlock label="Run in your terminal" code={`npx @whiteroom-ai/cli register --url https://proxy.whiteroom.tech --key ${apiKey} --fleet ${fleetId} my-agent`} />
+              </div>
             </div>
 
-            <div>
-              <p className="text-sm mb-3" style={{ color: '#A9B8D4' }}>
-                <strong className="font-semibold" style={{ color: '#EAF1FF' }}>Step 3.</strong>{' '}
-                Start a watch — governance is applied automatically.
-              </p>
-              <CodeBlock label="Start a watch" code={`npx @whiteroom-ai/cli start --url https://proxy.whiteroom.tech --key ${apiKey} my-agent`} />
+            {/* Step 3 */}
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm font-bold" style={{ background: 'rgba(56,225,255,.1)', color: '#38E1FF' }}>3</div>
+              <div className="flex-1 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: '#EAF1FF' }}>Start a governance session</p>
+                  <p className="text-sm mt-1" style={{ color: '#6B7C9E' }}>This tells WhiteRoom to start watching your agent. It will automatically manage work/rest cycles, compress context at handovers, and log everything to the audit trail.</p>
+                </div>
+                <CodeBlock label="Run in your terminal" code={`npx @whiteroom-ai/cli start --url https://proxy.whiteroom.tech --key ${apiKey} --fleet ${fleetId} my-agent`} />
+              </div>
             </div>
 
-            <div>
-              <p className="text-sm mb-3" style={{ color: '#A9B8D4' }}>
-                <strong className="font-semibold" style={{ color: '#EAF1FF' }}>Step 4.</strong>{' '}
-                Check your fleet status.
-              </p>
-              <CodeBlock label="Fleet report" code={`npx @whiteroom-ai/cli report --url https://proxy.whiteroom.tech --key ${apiKey}`} />
+            {/* Step 4 */}
+            <div className="flex gap-4">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-sm font-bold" style={{ background: 'rgba(56,225,255,.1)', color: '#38E1FF' }}>4</div>
+              <div className="flex-1 space-y-3">
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: '#EAF1FF' }}>Check your fleet</p>
+                  <p className="text-sm mt-1" style={{ color: '#6B7C9E' }}>See a summary of all your agents — how many are running, total tasks completed, and tokens used.</p>
+                </div>
+                <CodeBlock label="Run in your terminal" code={`npx @whiteroom-ai/cli report --url https://proxy.whiteroom.tech --key ${apiKey} --fleet ${fleetId}`} />
+              </div>
             </div>
           </div>
         </section>
 
-        {/* Fleet Status (returning users) */}
-        {report && (
-          <section className="rounded-xl p-6 space-y-4" style={{ background: '#0A1020', border: '1px solid #1B2740' }}>
-            <h3 className="text-[11px] font-mono tracking-[.28em] uppercase font-medium" style={{ color: '#A9B8D4' }}>Fleet Status</h3>
-            <div className="grid grid-cols-3 gap-4">
-              <StatCard label="Agents" value={(report as Record<string, unknown>).agentCount as number ?? 0} />
-              <StatCard label="Total Tasks" value={((report as Record<string, Record<string, number>>).totals?.tasks) ?? 0} />
-              <StatCard
-                label="Total Tokens"
-                value={`${(((report as Record<string, Record<string, number>>).totals?.tokens ?? 0) / 1000).toFixed(1)}K`}
-              />
-            </div>
-          </section>
-        )}
-
-        {/* Footer links — matches whiteroom.tech footer style */}
+        {/* Footer links */}
         <footer className="flex items-center gap-6 pt-4 pb-8">
           {[
             { label: 'Docs', href: 'https://whiteroom.tech/docs.html' },
