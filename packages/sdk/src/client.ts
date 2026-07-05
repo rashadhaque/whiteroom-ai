@@ -21,15 +21,19 @@ import type {
 export interface WhiteRoomConfig {
   baseUrl: string;
   apiKey?: string;
+  /** Request timeout in milliseconds. Default 30000. */
+  timeoutMs?: number;
 }
 
 export class WhiteRoomClient {
   private baseUrl: string;
   private apiKey: string | undefined;
+  private timeoutMs: number;
 
   constructor(config: WhiteRoomConfig) {
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
     this.apiKey = config.apiKey;
+    this.timeoutMs = config.timeoutMs ?? 30_000;
   }
 
   private async post<T>(path: string, body: Record<string, unknown>): Promise<T> {
@@ -40,6 +44,7 @@ export class WhiteRoomClient {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
 
     const data = await res.json();
@@ -48,7 +53,12 @@ export class WhiteRoomClient {
   }
 
   async health(): Promise<{ status: string; app: string; version: string }> {
-    const res = await fetch(`${this.baseUrl}/health`);
+    const res = await fetch(`${this.baseUrl}/health`, {
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
+    if (!res.ok) {
+      throw new WhiteRoomError(res.status, { error: `Health check failed (${res.status})` });
+    }
     return res.json();
   }
 
