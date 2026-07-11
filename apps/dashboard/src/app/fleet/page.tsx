@@ -14,7 +14,12 @@ interface AgentInfo {
   tokensUsed?: number;
   needsHandover?: boolean;
   restRemaining?: string;
+  restStartedAt?: string;
   alarmAt?: string;
+  restPercent?: string;
+  watchMinutes?: number;
+  restMinutes?: number;
+  handoverMinutes?: number;
 }
 
 interface HandoverDoc {
@@ -87,7 +92,7 @@ const PROXY_URL = process.env.NEXT_PUBLIC_PROXY_URL || 'https://proxy.whiteroom.
 export default function FleetDashboard() {
   const [report, setReport] = useState<FleetReport | null>(null);
   const [agents, setAgents] = useState<AgentInfo[]>([]);
-  const [agentHealth, setAgentHealth] = useState<Record<string, { health: number; restProgress: number; lastStatus: string }>>({});
+  const [agentHealth, setAgentHealth] = useState<Record<string, { health: number; lastStatus: string }>>({});
   const [handoverDocs, setHandoverDocs] = useState<Record<string, HandoverDoc>>({});
   const [error, setError] = useState('');
   const [auditEntries, setAuditEntries] = useState<AuditEntry[]>([]);
@@ -104,11 +109,11 @@ export default function FleetDashboard() {
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<'live' | 'analytics'>('live');
-  const [analyticsRange, setAnalyticsRange] = useState<'today' | '7d' | '30d' | 'all'>('today');
+  const [analyticsRange, setAnalyticsRange] = useState<'today' | '7d' | '30d' | 'recent'>('today');
   const [allEntries, setAllEntries] = useState<AuditEntry[]>([]);
   const [scopedDay, setScopedDay] = useState<string | null>(null);
   const [openDays, setOpenDays] = useState<Set<string>>(new Set());
-  const [openWatches, setOpenWatches] = useState<Set<number>>(new Set());
+  const [openWatches, setOpenWatches] = useState<Set<string>>(new Set());
   const router = useRouter();
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -201,19 +206,17 @@ export default function FleetDashboard() {
       );
       setAgents(details);
 
-      setAgentHealth((prev: Record<string, { health: number; restProgress: number; lastStatus: string }>) => {
+      setAgentHealth((prev: Record<string, { health: number; lastStatus: string }>) => {
         const next = { ...prev };
         details.forEach((d) => {
           const id = d.agentId;
-          if (!next[id]) next[id] = { health: 100, restProgress: 0, lastStatus: '' };
+          if (!next[id]) next[id] = { health: 100, lastStatus: '' };
           const pct = parseFloat((d.percentComplete || '0').toString().replace('%', '')) || 0;
           if (d.status === 'working') {
-            if (next[id].lastStatus === 'resting') { next[id].health = 100; next[id].restProgress = 0; }
             next[id].health = Math.max(20, 100 - pct * 0.75);
-          } else if (d.status === 'resting') {
-            next[id].health = Math.min(100, (next[id].health || 50) + 6);
-            next[id].restProgress = Math.min(100, (next[id].restProgress || 0) + 12);
-          } else { next[id].health = 100; next[id].restProgress = 0; }
+          } else {
+            next[id].health = 100;
+          }
           next[id].lastStatus = d.status;
         });
         return next;
@@ -417,12 +420,13 @@ export default function FleetDashboard() {
   const watchSaved = perWatchSaved;
   const watchSavingsPct = pctOf(watchTokens, watchSaved);
 
-  // --- Analytics computation ---
-  const now = new Date();
-  const todayKey = now.toISOString().slice(0, 10);
+  // --- Analytics computation (UTC throughout) ---
+  const nowMs = Date.now();
+  const todayKey = new Date(nowMs).toISOString().slice(0, 10);
+  const DAY_MS = 86400000;
   const cutoff = analyticsRange === 'today' ? todayKey
-    : analyticsRange === '7d' ? new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10)
-    : analyticsRange === '30d' ? new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10)
+    : analyticsRange === '7d' ? new Date(nowMs - 6 * DAY_MS).toISOString().slice(0, 10)
+    : analyticsRange === '30d' ? new Date(nowMs - 29 * DAY_MS).toISOString().slice(0, 10)
     : '1970-01-01';
 
   const rangedEntries = allEntries.filter(e => e.timestamp.slice(0, 10) >= cutoff);
@@ -478,7 +482,7 @@ export default function FleetDashboard() {
         <div className="flex items-center gap-2.5">
           <div className="w-2 h-2 rounded-full" style={{ background: '#22c55e', boxShadow: '0 0 12px #22c55e', animation: 'pulse-dot 2s infinite' }} />
           <span style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, letterSpacing: 3 }}>WHITE ROOM</span>
-          <span style={{ fontSize: 10, color: '#475569', borderLeft: '1px solid #334155', paddingLeft: 10 }}>10min ON / 5min HANDOVER / 10min REST</span>
+          <span style={{ fontSize: 10, color: '#475569', borderLeft: '1px solid #334155', paddingLeft: 10 }}>{agents.length > 0 && agents[0].watchMinutes ? `${agents[0].watchMinutes}min ON / ${agents[0].handoverMinutes || 5}min HANDOVER / ${agents[0].restMinutes || 10}min REST` : 'Loading config...'}</span>
           <span style={{ fontFamily: FONT_MONO, fontSize: 10, fontWeight: 600, letterSpacing: 1, color: '#7dd3fc', background: '#0c4a6e', border: '1px solid #0369a1', borderRadius: 4, padding: '2px 8px' }}>BETA</span>
         </div>
         <div className="flex items-center gap-2">
@@ -501,7 +505,7 @@ export default function FleetDashboard() {
         </button>
         {activeTab === 'analytics' && (
           <div className="flex items-center gap-1" style={{ marginLeft: 14 }}>
-            {(['today', '7d', '30d', 'all'] as const).map(r => (
+            {(['today', '7d', '30d', 'recent'] as const).map(r => (
               <button key={r} onClick={() => setAnalyticsRange(r)} style={{ padding: '3px 10px', fontSize: 10, fontWeight: 600, letterSpacing: 1, borderRadius: 4, cursor: 'pointer', border: analyticsRange === r ? '1px solid #38E1FF' : '1px solid #334155', background: analyticsRange === r ? 'rgba(56,225,255,.1)' : 'transparent', color: analyticsRange === r ? '#38E1FF' : '#94a3b8', transition: 'all .15s' }}>
                 {r.toUpperCase()}
               </button>
@@ -543,11 +547,12 @@ export default function FleetDashboard() {
               const status = agent.status || 'idle';
               const sc = SC[status] || SC.idle;
               const pct = parseFloat((agent.percentComplete || '0').toString().replace('%', '')) || 0;
-              const h = agentHealth[agent.agentId] || { health: 100, restProgress: 0 };
+              const h = agentHealth[agent.agentId] || { health: 100 };
               const health = h.health;
               const healthColor = health >= 80 ? '#22c55e' : health >= 55 ? '#4ade80' : health >= 35 ? '#f59e0b' : '#ef4444';
+              const restPct = parseFloat((agent.restPercent || '0').replace('%', '')) || 0;
               const watchBarColor = pct > 85 && status !== 'resting' ? '#f59e0b' : sc.bar;
-              const watchDisplay = status === 'resting' ? h.restProgress : pct;
+              const watchDisplay = status === 'resting' ? restPct : pct;
               const tokens = agent.tokensUsed || 0;
               const hdoc = handoverDocs[agent.agentId];
 
@@ -784,15 +789,16 @@ export default function FleetDashboard() {
               const dayOpen = openDays.has(day);
               const dayLabel = new Date(day + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }).toUpperCase();
               const dayPct = pctOf(d.used, d.saved);
-              // Group entries by watch number
-              const watchMap = new Map<number, AuditEntry[]>();
+              const watchMap = new Map<string, { wn: number; aid: string; entries: AuditEntry[] }>();
               d.entries.forEach(e => {
                 const wn = e.watchNumber || 0;
-                const arr = watchMap.get(wn) || [];
-                arr.push(e);
-                watchMap.set(wn, arr);
+                const aid = e.agentId || (e as Record<string, unknown>).from as string || '';
+                const key = `${day}:${aid}:${wn}`;
+                const group = watchMap.get(key) || { wn, aid, entries: [] };
+                group.entries.push(e);
+                watchMap.set(key, group);
               });
-              const watches = [...watchMap.entries()].sort(([a], [b]) => b - a);
+              const watches = [...watchMap.entries()].sort(([, a], [, b]) => b.wn - a.wn);
 
               return (
                 <div key={day} style={{ marginBottom: 6 }}>
@@ -807,16 +813,16 @@ export default function FleetDashboard() {
                       {dayPct > 0 && <span style={{ color: '#4ade80' }}>{dayPct.toFixed(1)}%</span>}
                     </span>
                   </div>
-                  {dayOpen && watches.map(([wn, entries]) => {
-                    const wOpen = openWatches.has(wn);
-                    const wTasks = entries.filter(e => e.type === 'task_complete').length;
-                    const wTokens = entries.filter(e => e.type === 'task_complete').reduce((s, e) => s + (e.tokensUsed || 0), 0);
+                  {dayOpen && watches.map(([wKey, wGroup]) => {
+                    const wOpen = openWatches.has(wKey);
+                    const wTasks = wGroup.entries.filter(e => e.type === 'task_complete').length;
+                    const wTokens = wGroup.entries.filter(e => e.type === 'task_complete').reduce((s, e) => s + (e.tokensUsed || 0), 0);
                     return (
-                      <div key={wn} style={{ margin: '4px 0 4px 14px' }}>
-                        <div onClick={() => setOpenWatches(prev => { const n = new Set(prev); n.has(wn) ? n.delete(wn) : n.add(wn); return n; })} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#0a0f1a', border: '1px solid #1e293b', borderLeft: '2px solid #334155', borderRadius: 5, padding: '6px 8px', cursor: 'pointer', userSelect: 'none' as const }}>
+                      <div key={wKey} style={{ margin: '4px 0 4px 14px' }}>
+                        <div onClick={() => setOpenWatches(prev => { const n = new Set(prev); n.has(wKey) ? n.delete(wKey) : n.add(wKey); return n; })} style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#0a0f1a', border: '1px solid #1e293b', borderLeft: '2px solid #334155', borderRadius: 5, padding: '6px 8px', cursor: 'pointer', userSelect: 'none' as const }}>
                           <span style={{ fontSize: 9, color: '#64748b', width: 9 }}>{wOpen ? '▾' : '▸'}</span>
-                          <span style={{ fontSize: 10, fontWeight: 700, color: '#cbd5e1' }}>WATCH #{wn || '?'}</span>
-                          <span style={{ fontSize: 9, color: '#475569', flex: 1 }}>{entries[0]?.agentId || ''}</span>
+                          <span style={{ fontSize: 10, fontWeight: 700, color: '#cbd5e1' }}>WATCH #{wGroup.wn || '?'}</span>
+                          <span style={{ fontSize: 9, color: '#475569', flex: 1 }}>{wGroup.aid || ''}</span>
                           <span className="flex gap-2" style={{ fontSize: 9, color: '#64748b', whiteSpace: 'nowrap' as const }}>
                             <span><b style={{ color: '#94a3b8' }}>{wTasks}</b> tasks</span>
                             <span><b style={{ color: '#94a3b8' }}>{fmtK(wTokens)}</b> tok</span>
@@ -824,7 +830,7 @@ export default function FleetDashboard() {
                         </div>
                         {wOpen && (
                           <div style={{ padding: '4px 0 4px 20px' }}>
-                            {entries.map(entry => {
+                            {wGroup.entries.map(entry => {
                               const isTask = entry.type === 'task_complete';
                               const time = new Date(entry.timestamp).toLocaleTimeString('en-US', { hour12: false });
                               return (
