@@ -283,11 +283,13 @@ export default function FleetDashboard() {
 
     setAuthenticated(true);
     fetchReport(); fetchAudit(); fetchAllEntries();
-    const interval = setInterval(() => { fetchReport(); fetchAudit(); fetchAllEntries(); }, 5000);
+    const interval = setInterval(() => { fetchReport(); fetchAudit(); }, 10000);
     return () => clearInterval(interval);
   }, [token, fleetToken, router, fetchReport, fetchAudit, fetchAllEntries]);
 
   useEffect(() => { fetchAudit(); }, [filterAgent, filterType, fetchAudit]);
+
+  useEffect(() => { if (activeTab === 'analytics') fetchAllEntries(); }, [activeTab, fetchAllEntries]);
 
   function handleSearchChange(value: string) {
     setSearchText(value);
