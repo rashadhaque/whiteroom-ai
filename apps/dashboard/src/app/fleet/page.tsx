@@ -29,7 +29,7 @@ interface FleetReport {
   agentCount: number;
   status: { working: string[]; resting: string[]; idle: string[]; handover_out?: string[] };
   totals: { workMinutes: number; tokens: number; tasks: number; handovers: number };
-  energySavings: { estimatedTokensSaved: number; estimatedCostSaved: string; estimatedEnergySaved: string };
+  energySavings: { estimatedTokensSaved: number; estimatedCostSaved: string; estimatedEnergySaved: string; formula: string };
   compliance: { allAgentsWithinLimits: boolean; restingAgentsCount: number; laborScore: string };
 }
 
@@ -65,8 +65,9 @@ const SC: Record<string, { border: string; badgeBg: string; badgeTx: string; bad
   handover_out: { border: '#a78bfa', badgeBg: '#2e1065', badgeTx: '#c4b5fd', badgeBd: '#a78bfa', bar: '#a78bfa' },
 };
 
-const COST_PER_1K = 0.003;
-const ENERGY_PER_1M = 0.4;
+function estimateCost(tokensSaved: number): number {
+  return tokensSaved * 0.8 * 0.0000008 + tokensSaved * 0.2 * 0.000004;
+}
 const FONT_DISPLAY = "'Chakra Petch', sans-serif";
 const FONT_MONO = "'JetBrains Mono', monospace";
 
@@ -415,10 +416,6 @@ export default function FleetDashboard() {
   const watchWithoutWR = watchTokens + perWatchSaved;
   const watchSaved = perWatchSaved;
   const watchSavingsPct = pctOf(watchTokens, watchSaved);
-  const watchCostWith = (watchTokens / 1000) * COST_PER_1K;
-  const watchCostNo = (watchWithoutWR / 1000) * COST_PER_1K;
-  const watchEnergyWith = (watchTokens / 1000000) * ENERGY_PER_1M;
-  const watchEnergyNo = (watchWithoutWR / 1000000) * ENERGY_PER_1M;
 
   // --- Analytics computation ---
   const now = new Date();
@@ -531,7 +528,7 @@ export default function FleetDashboard() {
           <BannerMetric label="TOKENS (W/O WHITEROOM)" value={rangeTotals.used + rangeTotals.saved > 0 ? fmtK(rangeTotals.used + rangeTotals.saved) : '—'} color="#fca5a5" />
           <BannerMetric label="TOKENS SAVED" value={rangeTotals.saved > 0 ? fmtK(rangeTotals.saved) : '—'} color="#4ade80" />
           <BannerMetric label="SAVINGS %" value={rangeTotals.used + rangeTotals.saved > 0 ? pctOf(rangeTotals.used, rangeTotals.saved).toFixed(1) + '%' : '—'} color="#4ade80" />
-          <BannerMetric label="COST SAVED" value={rangeTotals.saved > 0 ? `$${(rangeTotals.saved / 1000 * COST_PER_1K).toFixed(2)}` : '—'} color="#4ade80" />
+          <BannerMetric label="COST SAVED" value={rangeTotals.saved > 0 ? `$${estimateCost(rangeTotals.saved).toFixed(4)}` : '—'} color="#4ade80" />
           <BannerMetric label="HANDOVERS" value={rangeTotals.handovers ? String(rangeTotals.handovers) : '—'} color="#818cf8" />
         </>)}
       </div>
