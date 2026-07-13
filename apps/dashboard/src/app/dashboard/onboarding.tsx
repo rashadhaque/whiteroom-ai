@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { addUserFleet } from '@/lib/user-fleets';
 
 interface Props {
   name: string;
@@ -64,8 +65,11 @@ export function Onboarding({ name, email, apiKey, fleetId, fleetToken, report, i
   const [showKey, setShowKey] = useState(isNew);
 
   useEffect(() => {
-    if (fleetToken) localStorage.setItem('wr_fleet_token', fleetToken);
-  }, [fleetToken]);
+    if (fleetToken) {
+      localStorage.setItem('wr_fleet_token', fleetToken);
+      if (isNew) addUserFleet(fleetToken, fleetId, 'My Fleet');
+    }
+  }, [fleetToken, fleetId, isNew]);
 
   return (
     <div className="min-h-screen font-sans" style={{ background: '#070B14', color: '#EAF1FF' }}>
@@ -218,7 +222,7 @@ export function Onboarding({ name, email, apiKey, fleetId, fleetToken, report, i
             { label: 'Docs', href: 'https://whiteroom.tech/docs.html' },
             { label: 'SDK', href: 'https://whiteroom.tech/docs.html#sdk' },
             { label: 'OpenAPI', href: 'https://whiteroom.tech/openapi.yaml' },
-            { label: 'GitHub', href: 'https://github.com/rashadhaque/whiteroom-ai' },
+            { label: 'GitHub', href: 'https://github.com/whiteroom-tech/whiteroom-ai' },
           ].map(link => (
             <a
               key={link.label}

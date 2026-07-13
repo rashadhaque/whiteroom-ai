@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
 import { clearFleetCredentials } from '@/lib/fleet-credentials';
+import { getUserFleets, addUserFleet, removeUserFleet, type UserFleet } from '@/lib/user-fleets';
 
 interface AgentInfo {
   agentId: string;
@@ -115,6 +116,13 @@ export default function FleetDashboard() {
   const [scopedDay, setScopedDay] = useState<string | null>(null);
   const [openDays, setOpenDays] = useState<Set<string>>(new Set());
   const [openWatches, setOpenWatches] = useState<Set<string>>(new Set());
+  const [userFleets, setUserFleets] = useState<UserFleet[]>([]);
+  const [showAddFleet, setShowAddFleet] = useState(false);
+  const [addFleetToken, setAddFleetToken] = useState('');
+  const [addFleetLabel, setAddFleetLabel] = useState('');
+  const [addFleetError, setAddFleetError] = useState('');
+  const [addFleetLoading, setAddFleetLoading] = useState(false);
+  const [showFleetMenu, setShowFleetMenu] = useState(false);
   const router = useRouter();
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -301,9 +309,59 @@ export default function FleetDashboard() {
     setExpandedTasks((prev: Set<string>) => { const next = new Set(prev); if (next.has(taskId)) next.delete(taskId); else next.add(taskId); return next; });
   }
 
+  useEffect(() => {
+    if (authenticated) getUserFleets().then(setUserFleets);
+  }, [authenticated]);
+
   function handleLogout() {
     clearFleetCredentials();
     setAuthenticated(false);
+  }
+
+  function switchFleet(uf: UserFleet) {
+    localStorage.setItem('wr_token', uf.fleet_token);
+    localStorage.setItem('wr_fleet_token', uf.fleet_token);
+    if (uf.fleet_id) localStorage.setItem('wr_fleet', uf.fleet_id);
+    else localStorage.removeItem('wr_fleet');
+    setShowFleetMenu(false);
+    window.location.reload();
+  }
+
+  async function handleAddFleet(e: React.FormEvent) {
+    e.preventDefault();
+    setAddFleetError('');
+    setAddFleetLoading(true);
+    try {
+      const res = await fetch(`${PROXY_URL}/api/white-room`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'token_login', fleet_token: addFleetToken.trim() }),
+      });
+      const data = await res.json();
+      if (data.error || !data.fleetId) {
+        setAddFleetError(data.error || 'Invalid fleet token');
+        return;
+      }
+      const result = await addUserFleet(addFleetToken.trim(), data.fleetId, addFleetLabel.trim() || data.fleetId);
+      if (!result.ok) {
+        setAddFleetError(result.error || 'Failed to save');
+        return;
+      }
+      setShowAddFleet(false);
+      setAddFleetToken('');
+      setAddFleetLabel('');
+      const fleets = await getUserFleets();
+      setUserFleets(fleets);
+    } catch {
+      setAddFleetError('Could not connect to WhiteRoom server');
+    } finally {
+      setAddFleetLoading(false);
+    }
+  }
+
+  async function handleRemoveFleet(id: string) {
+    await removeUserFleet(id);
+    setUserFleets(await getUserFleets());
   }
 
   function handleSplitterDown(e: React.MouseEvent) {
@@ -413,11 +471,17 @@ export default function FleetDashboard() {
   // Current-watch stats from agent details
   const watchTasks = agents.reduce((s, a) => s + (a.tasksCompleted || 0), 0);
   const watchTokens = agents.reduce((s, a) => s + (a.tokensUsed || 0), 0);
-  const watchHandovers = report?.totals?.handovers || 0;
-  const perWatchSaved = t.handovers > 0 ? (es.estimatedTokensSaved || 0) / t.handovers : 0;
-  const watchWithoutWR = watchTokens + perWatchSaved;
-  const watchSaved = perWatchSaved;
-  const watchSavingsPct = pctOf(watchTokens, watchSaved);
+  const watchHandoverAgents = report?.status?.handover_out?.length || 0;
+  // Savings from the most recent handover that actually compressed context
+  const lastRealHandover = allEntries.find(e =>
+    (e.type === 'handover' || e.type === 'self_handover') &&
+    ((e as Record<string, unknown>).contextTokens as number || 0) > 0
+  );
+  const lastCtx = lastRealHandover ? ((lastRealHandover as Record<string, unknown>).contextTokens as number || 0) : 0;
+  const lastDoc = lastRealHandover ? ((lastRealHandover as Record<string, unknown>).handoverDocTokens as number || 0) : 0;
+  const watchSaved = Math.max(0, lastCtx - lastDoc);
+  const watchWithoutWR = watchTokens + watchSaved;
+  const watchSavingsPct = watchTokens > 0 && watchSaved > 0 ? pctOf(watchTokens, watchSaved) : 0;
 
   // --- Analytics computation (UTC throughout) ---
   const nowMs = Date.now();
@@ -449,6 +513,18 @@ export default function FleetDashboard() {
     }
     dayMap.set(day, d);
   });
+  // For days with tasks but no savings from their own handovers,
+  // attribute savings from the preceding handover that compressed context
+  dayMap.forEach((d, day) => {
+    if (d.tasks > 0 && d.saved === 0) {
+      const preceding = allEntries.find(e =>
+        (e.type === 'handover' || e.type === 'self_handover') &&
+        e.timestamp.slice(0, 10) <= day &&
+        ((e as Record<string, unknown>).contextTokens as number || 0) > 0
+      );
+      if (preceding) d.saved = handoverSaved(preceding);
+    }
+  });
   const dailyStats = [...dayMap.entries()].sort(([a], [b]) => a.localeCompare(b));
   const chartMax = Math.max(...dailyStats.map(([, d]) => d.used + d.saved), 1);
 
@@ -465,6 +541,16 @@ export default function FleetDashboard() {
       a.saved += handoverSaved(e);
     }
     agentMap.set(aid, a);
+  });
+  // Attribute preceding handover savings to agents with tasks but no savings
+  agentMap.forEach(a => {
+    if (a.tasks > 0 && a.saved === 0) {
+      const preceding = allEntries.find(e =>
+        (e.type === 'handover' || e.type === 'self_handover') &&
+        ((e as Record<string, unknown>).contextTokens as number || 0) > 0
+      );
+      if (preceding) a.saved = handoverSaved(preceding);
+    }
   });
   const agentBreakdown = [...agentMap.entries()].sort(([, a], [, b]) => b.used - a.used);
 
@@ -486,7 +572,28 @@ export default function FleetDashboard() {
         </div>
         <div className="flex items-center gap-2">
           <span style={{ fontSize: 10, color: '#22c55e', background: '#052e16', border: '1px solid #166534', borderRadius: 4, padding: '2px 8px' }}>● CONNECTED</span>
-          <span style={{ fontSize: 10, color: '#64748b' }}>Fleet: {report.fleetId}</span>
+          <div style={{ position: 'relative' }}>
+            <button onClick={() => setShowFleetMenu(!showFleetMenu)} style={{ fontSize: 10, color: '#64748b', background: 'transparent', border: '1px solid #1e293b', borderRadius: 4, padding: '4px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+              Fleet: {userFleets.find(f => f.fleet_token === (token || fleetToken))?.label || report.fleetId}
+              <span style={{ fontSize: 8 }}>▼</span>
+            </button>
+            {showFleetMenu && (
+              <div style={{ position: 'absolute', top: '100%', right: 0, marginTop: 4, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 8, minWidth: 220, zIndex: 100, boxShadow: '0 8px 24px rgba(0,0,0,.5)' }}>
+                {userFleets.map(uf => (
+                  <div key={uf.id} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px', borderBottom: '1px solid #1e293b' }}>
+                    <button onClick={() => switchFleet(uf)} style={{ flex: 1, textAlign: 'left', background: 'none', border: 'none', color: uf.fleet_token === (token || fleetToken) ? '#38E1FF' : '#e2e8f0', fontSize: 12, cursor: 'pointer', padding: 0 }}>
+                      {uf.label}
+                      <span style={{ display: 'block', fontSize: 9, color: '#475569', marginTop: 2 }}>{uf.fleet_id}</span>
+                    </button>
+                    {userFleets.length > 1 && (
+                      <button onClick={() => handleRemoveFleet(uf.id)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 11, cursor: 'pointer', padding: '2px 4px' }} title="Remove">✕</button>
+                    )}
+                  </div>
+                ))}
+                <button onClick={() => { setShowFleetMenu(false); setShowAddFleet(true); setAddFleetError(''); }} style={{ width: '100%', padding: '10px 12px', background: 'none', border: 'none', color: '#38E1FF', fontSize: 11, fontWeight: 600, cursor: 'pointer', textAlign: 'left' }}>+ Add Fleet</button>
+              </div>
+            )}
+          </div>
           <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, background: report.compliance.allAgentsWithinLimits ? '#052e16' : '#1c0f0f', color: report.compliance.allAgentsWithinLimits ? '#22c55e' : '#ef4444', border: `1px solid ${report.compliance.allAgentsWithinLimits ? '#166534' : '#7f1d1d'}` }}>
             {report.compliance.allAgentsWithinLimits ? 'COMPLIANT' : 'VIOLATION'}
           </span>
@@ -521,10 +628,10 @@ export default function FleetDashboard() {
         {activeTab === 'live' ? (<>
           <BannerMetric label="TASKS COMPLETED" value={watchTasks ? String(watchTasks) : '—'} color="#f8fafc" />
           <BannerMetric label="TOKENS (W/ WHITEROOM)" value={watchTokens > 0 ? fmtK(watchTokens) : '—'} color="#86efac" />
-          <BannerMetric label="TOKENS (W/O WHITEROOM)" value={watchWithoutWR > 0 ? fmtK(watchWithoutWR) : '—'} color="#fca5a5" />
-          <BannerMetric label="TOKENS SAVED" value={watchSaved > 0 ? fmtK(watchSaved) : '—'} color="#4ade80" />
-          <BannerMetric label="SAVINGS" value={watchSavingsPct > 0 ? watchSavingsPct.toFixed(1) + '%' : '—'} color="#4ade80" />
-          <BannerMetric label="HANDOVERS" value={watchHandovers ? String(watchHandovers) : '—'} color="#818cf8" />
+          <BannerMetric label="TOKENS (W/O WHITEROOM)" value={watchTokens > 0 && watchWithoutWR > 0 ? fmtK(watchWithoutWR) : '—'} color="#fca5a5" />
+          <BannerMetric label="TOKENS SAVED" value={watchTokens > 0 && watchSaved > 0 ? fmtK(watchSaved) : '—'} color="#4ade80" />
+          <BannerMetric label="SAVINGS" value={watchTokens > 0 && watchSavingsPct > 0 ? watchSavingsPct.toFixed(1) + '%' : '—'} color="#4ade80" />
+          <BannerMetric label="HANDOVERS (ACTIVE)" value={watchHandoverAgents ? String(watchHandoverAgents) : '—'} color="#818cf8" />
         </>) : (<>
           <BannerMetric label="TASKS COMPLETED" value={rangeTotals.tasks ? String(rangeTotals.tasks) : '—'} color="#f8fafc" />
           <BannerMetric label="TOKENS (W/ WHITEROOM)" value={rangeTotals.used > 0 ? fmtK(rangeTotals.used) : '—'} color="#86efac" />
@@ -855,6 +962,53 @@ export default function FleetDashboard() {
         </div>
       </div>
       </>
+      )}
+
+      {/* Add Fleet Modal */}
+      {showAddFleet && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div onClick={() => setShowAddFleet(false)} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.6)', backdropFilter: 'blur(4px)' }} />
+          <div style={{ position: 'relative', width: 420, background: '#0f172a', border: '1px solid #1e293b', borderRadius: 12, padding: 28, boxShadow: '0 12px 40px rgba(0,0,0,.5)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <h3 style={{ fontFamily: FONT_DISPLAY, fontSize: 16, fontWeight: 700, letterSpacing: 2, color: '#EAF1FF', margin: 0 }}>ADD FLEET</h3>
+              <button onClick={() => setShowAddFleet(false)} style={{ background: 'none', border: 'none', color: '#64748b', fontSize: 18, cursor: 'pointer', padding: '2px 6px' }}>✕</button>
+            </div>
+            <form onSubmit={handleAddFleet} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <label style={{ display: 'block', fontSize: 10, letterSpacing: 1, color: '#6B7C9E', marginBottom: 6, fontFamily: FONT_MONO }}>FLEET TOKEN</label>
+                <input
+                  type="text"
+                  value={addFleetToken}
+                  onChange={e => setAddFleetToken(e.target.value)}
+                  placeholder="wr_..."
+                  required
+                  style={{ width: '100%', background: '#070B14', border: '1px solid #1B2740', borderRadius: 8, padding: '10px 14px', color: '#EAF1FF', fontSize: 13, fontFamily: FONT_MONO, outline: 'none' }}
+                />
+                <p style={{ fontSize: 10, color: '#475569', marginTop: 4 }}>Paste the fleet token from your onboarding page or another account.</p>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: 10, letterSpacing: 1, color: '#6B7C9E', marginBottom: 6, fontFamily: FONT_MONO }}>LABEL (OPTIONAL)</label>
+                <input
+                  type="text"
+                  value={addFleetLabel}
+                  onChange={e => setAddFleetLabel(e.target.value)}
+                  placeholder="e.g. Production, Staging..."
+                  style={{ width: '100%', background: '#070B14', border: '1px solid #1B2740', borderRadius: 8, padding: '10px 14px', color: '#EAF1FF', fontSize: 13, fontFamily: FONT_MONO, outline: 'none' }}
+                />
+              </div>
+              {addFleetError && (
+                <p style={{ color: '#ef4444', fontSize: 12, margin: 0 }}>{addFleetError}</p>
+              )}
+              <button
+                type="submit"
+                disabled={addFleetLoading || !addFleetToken.trim()}
+                style={{ width: '100%', background: '#38E1FF', color: '#070B14', borderRadius: 8, padding: '10px 0', fontWeight: 700, fontSize: 13, letterSpacing: 1, fontFamily: FONT_DISPLAY, border: 'none', cursor: addFleetLoading || !addFleetToken.trim() ? 'not-allowed' : 'pointer', opacity: addFleetLoading || !addFleetToken.trim() ? 0.4 : 1, transition: 'opacity .15s' }}
+              >
+                {addFleetLoading ? 'VALIDATING...' : 'ADD FLEET'}
+              </button>
+            </form>
+          </div>
+        </div>
       )}
 
       {/* Footer */}
