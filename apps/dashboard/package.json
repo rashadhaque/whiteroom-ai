@@ -10,13 +10,13 @@
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
-    "@supabase/ssr": "^0.6.1",
+    "@supabase/ssr": "^0.12.3",
     "@supabase/supabase-js": "^2.49.8",
     "clsx": "^2.1.1",
     "framer-motion": "^12.12.2",
-    "lucide-react": "^0.511.0",
+    "lucide-react": "^1.25.0",
     "next": "^16.2.9",
-    "posthog-js": "^1.398.1",
+    "posthog-js": "^1.405.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "tailwind-merge": "^3.3.0"
