@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, Fragment } from 'react';
 import { useRouter } from 'next/navigation';
+import { createClient } from '@/lib/supabase/client';
 import { clearFleetCredentials } from '@/lib/fleet-credentials';
 import { getUserFleets, addUserFleet, removeUserFleet, type UserFleet } from '@/lib/user-fleets';
 
@@ -270,7 +271,23 @@ export default function FleetDashboard() {
   }, [fleetId]);
 
   useEffect(() => {
-    if (!token && !fleetToken) { setAuthenticated(false); return; }
+    if (!token && !fleetToken) {
+      const supabase = createClient();
+      supabase.auth.getUser().then(({ data: { user } }) => {
+        const savedToken = user?.user_metadata?.whiteroom_fleet_token;
+        const savedKey = user?.user_metadata?.whiteroom_api_key;
+        const savedFleet = user?.user_metadata?.whiteroom_fleet_id;
+        if (savedToken || savedKey) {
+          if (savedToken) localStorage.setItem('wr_fleet_token', savedToken);
+          if (savedKey) localStorage.setItem('wr_token', savedKey);
+          if (savedFleet) localStorage.setItem('wr_fleet', savedFleet);
+          window.location.reload();
+        } else {
+          setAuthenticated(false);
+        }
+      }).catch(() => { setAuthenticated(false); });
+      return;
+    }
 
     if (!fleetId && fleetToken) {
       fetch(`${PROXY_URL}/api/white-room`, {
