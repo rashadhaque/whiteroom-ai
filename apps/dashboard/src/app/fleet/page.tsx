@@ -704,7 +704,21 @@ export default function FleetDashboard() {
                 </div>
               );
             })}
-            {agents.length === 0 && <div style={{ gridColumn: '1 / -1', textAlign: 'center', color: '#475569', padding: '40px 0', fontSize: 12 }}>No agents connected yet</div>}
+            {agents.length === 0 && (
+              <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px 20px' }}>
+                <div style={{ fontSize: 40, marginBottom: 16 }}>⚓</div>
+                <p style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8', marginBottom: 8 }}>No agents connected yet</p>
+                <p style={{ fontSize: 12, color: '#475569', maxWidth: 360, margin: '0 auto 20px' }}>
+                  Point your agent at WhiteRoom by adding one line to your .env file, then run it as usual. It will appear here automatically.
+                </p>
+                <a
+                  href="/dashboard"
+                  style={{ display: 'inline-block', fontSize: 12, fontWeight: 600, color: '#38E1FF', textDecoration: 'none', border: '1px solid rgba(56,225,255,.3)', borderRadius: 8, padding: '8px 20px' }}
+                >
+                  View setup instructions →
+                </a>
+              </div>
+            )}
           </div>
 
           <div style={{ marginTop: 12, textAlign: 'center', fontSize: 10, color: '#475569' }}>Labor Score: {report.compliance.laborScore}</div>
